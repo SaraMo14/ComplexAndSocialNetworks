@@ -11,7 +11,7 @@ You can find the details here :
 - [Analysis of the degree distribution]
     - [Report](./lab2/CSN2_final_version.pdf)
     - [Code](./lab2/notebook.Rmd)
-- [Significance of network metrics](./.pdf)
+- [Significance of network metrics]
     - [Report](./lab3/csn_lab3_report.pdf)
     - [Code](./lab3/report_lab3.pdf)
 - [Non-linear regression on dependency trees]
