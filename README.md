@@ -10,11 +10,11 @@ You can find the details here :
     - [Report](./lab1/report_lab1.pdf)
     - [Code](./lab1/lab1_partAB_finalversion.pdf)
 - Analysis of the degree distribution
-    - [Guide](./lab4/.pdf)
+    - [Guide](./lab4/degree_distribution.pdf)
     - [Report](./lab2/CSN2_final_version.pdf)
     - [Code](./lab2/notebook.Rmd)
 - Significance of network metrics
-    - [Guide](./lab3/.pdf)
+    - [Guide](./lab3/significance_of_metrics.pdf)
     - [Report](./lab3/csn_lab3_report.pdf)
     - [Code](./lab3/report_lab3.pdf)
 - Non-linear regression on dependency trees
