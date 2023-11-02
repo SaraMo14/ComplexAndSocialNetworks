@@ -1,0 +1,615 @@
+---
+title: "R Notebook"
+output: html_notebook
+---
+
+
+
+```{r}
+#requirements
+require("stats4") # for MLE
+require("VGAM") # for the Riemann-zeta function
+
+
+```
+
+```{r}
+#definitions
+# define the list of languages
+languages <- c("Arabic", "Basque", "Catalan", "Chinese", "Czech",  "English", "Greek", "Hungarian", "Italian")
+
+# Create an empty list to store the data frames
+data_list <- list()
+
+# create empty dataframe to store information about different degree sequences
+results <- data.frame(Language = character(0), 
+                      N = numeric(0),
+                      Maximum_degree = numeric(0),
+                      M_over_N = numeric(0),
+                      N_over_M = numeric(0),
+                      stringsAsFactors = FALSE)
+```
+
+
+```{r}
+
+compute_summary<-function(lang){file_name <- paste0("data/", lang, "_out-degree_sequence.txt")
+  
+  # Read the file
+  data_list[[tolower(lang)]] <- read.table(file_name, header = FALSE)
+  
+  # Reading the out-degree sequences
+  degree_sequence <- read.table(file_name, header = FALSE)$V1
+  
+  N <- length(degree_sequence)
+  max_degree <- max(degree_sequence)
+  M <- sum(degree_sequence)
+  
+  results <<- rbind(results, data.frame(
+    Language = lang,
+    N = N,
+    Maximum_degree = max_degree,
+    M_over_N = M/N,
+    N_over_M = N/M
+  ))
+}
+
+result<-lapply(languages,compute_summary)
+result
+```
+
+
+```{r}
+# Rename the list elements with desired names
+names(languages) <- paste0("outdegree_sequence_", tolower(languages))
+
+# Import each dataset as a separate variable in the global environment:
+list2env(data_list, envir = .GlobalEnv)
+
+```
+
+
+```{r}
+
+#----------------------------------- EVALUATION#----------------------------------- #
+#--------------------------- 1 Visualization (Qualitatively)------------------------#
+# task: 
+# Look for a transformation of at least one of the variables
+# showing approximately a straight line (upon visual inspection)
+# and obtain the dependency between the two original variables.
+
+visualize_cum_dist<-function(lang) {
+  # Read the out-degree sequences
+  file_name <- paste0("data/", lang, "_out-degree_sequence.txt")
+  degree_sequence <- read.table(file_name, header = FALSE)$V1
+  
+  # Calculate the degree spectrum (distribution)
+  degree_spectrum <- table(degree_sequence)
+  
+  # Plot regular barplot
+  par(mfrow=c(1,2)) # Setting the layout to show two plots side by side
+  
+  barplot(degree_spectrum, main = lang,
+          xlab = "degree", ylab = "number of vertices")
+  
+  # Plot log-log barplot
+  barplot(degree_spectrum, main = paste0(lang, " (Log-Log Scale)"),
+          xlab = "degree", ylab = "number of vertices",log="xy")
+}
+
+lapply(languages,visualize_cum_dist)
+
+```
+
+`
+```{r}
+######################################### MLE ######################################### 
+
+
+
+compute_mles<-function(x) {
+  #file_name <- paste0("data/", lang, "_out-degree_sequence.txt")
+  
+  # Reading the out-degree sequences
+  #x <- read.table(file_name, header = FALSE)$V1
+  N = length(x)
+  
+  #("MODEL EVALUTATION for ", lang) 
+  #cat("")
+  
+  
+  #0. ZETA DISTRIBUTIONS (without fixed gamma = 2)
+  minus_log_likelihood_zeta <- function(gamma) {
+    length(x) * log(zeta(gamma)) + gamma * sum(log(x))
+  }
+  mle_zeta <- mle(minus_log_likelihood_zeta, start = list(gamma = 2), method = "L-BFGS-B",  lower = c(1.0000001))
+  
+  
+  #1. ZETA DISTRIBUTIONS (with fixed gamma = 2)
+  mle_zeta_0 <- mle(minus_log_likelihood_zeta, fixed=list(gamma=2), method = "L-BFGS-B")
+ 
+  
+  
+  #2. RIGHT-TRUNCATED ZETA DISTRIBUTION   
+  truncated_zeta <- function(gamma, kmax) {
+    result <- 0
+    for (k in 1:kmax) {
+      result <- result + 1/(k^gamma)
+    }
+    return(result)
+  }
+  
+  minus_log_likelihood_zeta_t <- function(gamma, kmax) {
+   length(x) * log(truncated_zeta(gamma, kmax)) + gamma * sum(log(x))
+  }
+  
+  mle_zeta_t <- mle(minus_log_likelihood_zeta_t,
+                  start = list(gamma = 3.0000001, kmax = length(x)  ), #gamma0 = 1 from the paper "The evolution of the exponent of zipf's law in language ontogeny.PloS one,"
+                  method = "L-BFGS-B",
+                  lower = c(1.0000001, max(x))) #gamma cant be smaller than 1 (or 0?) since we start from 1, as the paper suggestes. kmax cant be smaller than 1 since we cant have nodes with degree 0 in the graph
+  
+  
+  #3. DISPLACED GEOMETRIC DISTRIBUTION  
+  minus_log_likelihood_geom <- function(q) {
+    (length(x) - sum(x))*log(1-q) - length(x)*log(q)
+  }
+  #q0 = N/M
+  q0 = length(x)/sum(x)
+  mle_geom <- mle(minus_log_likelihood_geom, start = list(q = length(x)/sum(x)), method = "L-BFGS-B",  lower = c(0), upper=c(0.999999)) #minimal value is 0 since it's a probability
+  
+  
+  #4. DISPLACED POISSON DISTRIBUTION
+  minus_log_likelihood_poi<- function(lambda) {
+    #N=length(x)
+    C = 0
+    for (i in 1:N) {
+     for (j in 2:x[i]) {
+        C <- C + log(j)
+      }
+    }
+    return(C + N*(lambda + log(1-exp(-lambda))) - sum(x)*log(lambda))
+  }
+  
+  #lambda0 = M/N
+  lambda0 = sum(x)/length(x)
+  mle_poi <- mle(minus_log_likelihood_poi,  start = list(lambda = lambda0),   method = "L-BFGS-B", lower = c(0)) #the lower bound for lambda (λ) in a Poisson distribution is 0 (zero) because you cannot have a negative rate of occurrence.
+ 
+  
+  neg_log_likelihood <-function(gamma, delta){
+    c <- 0
+    for(i in 1:N){
+        c <- c + i^(-gamma) * exp(-delta * i)
+    }
+
+   return(gamma*sum(log(x)) + length(x)*log(c) + delta*sum(x))
+  }
+  mle_alt <- mle(neg_log_likelihood,  start = list(gamma=1, delta = 0.1),   method = "L-BFGS-B", lower = c(0.01,0.01))
+  
+  #########to print summary of a specific mle and see estimate, st.error and m2logL, for example the one of Altmann Function, uncomment the following:#########
+  #print(lang)
+  #print(summary(mle_results$mle_alt))
+
+  
+  return(list(mle_zeta_0=summary(mle_zeta_0), mle_zeta=summary(mle_zeta), mle_zeta_t = summary(mle_zeta_t), mle_poi=summary(mle_poi), mle_geom = summary(mle_geom),    mle_alt=mle_alt))
+}
+
+```
+
+
+
+
+```{r}
+# Initialize an empty data frame to store the results
+results_df <- data.frame(
+  Language = character(0),
+  Model = character(0),
+  MLE_Results = character(0) # Create a column for MLE results
+)
+
+# Loop through each language
+for (lang in languages) {
+  
+  file_name <- paste0("data/", lang, "_out-degree_sequence.txt")
+  # Reading the out-degree sequences
+  x <- read.table(file_name, header = FALSE)$V1
+  
+  # Compute MLEs for the language
+  mle_results <- compute_mles(x)
+  
+  # Extract estimated parameters from MLE results
+  gamma_zeta_0 <- 2
+  gamma_zeta <- coef(mle_results$mle_zeta)[1]
+  gamma_zeta_t <- coef(mle_results$mle_zeta_t)[1]
+  kmax_zeta_t <- coef(mle_results$mle_zeta_t)[2]
+  lambda_poi <- coef(mle_results$mle_poi)[1]
+  q_geom <- coef(mle_results$mle_geom)[1]
+  gamma_alt <- coef(mle_results$mle_alt)[1]
+  delta_alt <- coef(mle_results$mle_alt)[2]
+  
+  
+  
+    
+  # Add the results to the data frame
+   results_df<- rbind(results_df,
+    data.frame(
+      Language = lang,
+      Model = "Zeta (with fixed gamma)",
+      MLE_Results = paste("gamma =", gamma_zeta_0)
+    ),
+    data.frame(
+      Language = lang,
+      Model = "Zeta (without fixed gamma)",
+      MLE_Results = paste("gamma =", gamma_zeta)
+    ),
+    data.frame(
+      Language = lang,
+      Model = "Truncated Zeta",
+      MLE_Results = paste("gamma =",gamma_zeta_t[1], "kmax =", kmax_zeta_t[1]) 
+    ),
+    data.frame(
+      Language = lang,
+      Model = "Displaced Poisson",
+      MLE_Results = paste("lambda =", lambda_poi)
+    ),
+    data.frame(
+      Language = lang,
+      Model = "Displaced Geometric",
+      MLE_Results = paste("q =", q_geom)
+    ),
+    data.frame(
+      Language = lang,
+      Model = "Altmann Distribution",
+      MLE_Results = paste("gamma =", gamma_alt[1], "delta =", delta_alt[1])
+    )
+  )
+}
+
+# Print the results as a table
+knitr::kable(results_df, caption = "Model Evaluation Results")
+
+```
+
+
+```{r}
+#computes the AIC from the relevant information
+get_AIC <- function(m2logL,K,N) {
+  m2logL + 2*K*N/(N-K-1) # AIC with a correction for sample size
+}
+
+#function to compute AIC for a language:
+compute_aic <-function(lang){
+  file_name <- paste0("data/", lang, "_out-degree_sequence.txt")
+  # Reading the out-degree sequences
+  x <- read.table(file_name, header = FALSE)$V1
+   N=length(x)
+  mles<-compute_mles(x)
+  aic_zeta = get_AIC(attributes(mles$mle_zeta)$m2logL, 1, N)
+  aic_zeta_0 = get_AIC(attributes(mles$mle_zeta_0)$m2logL, 0, N)
+  aic_zeta_t = get_AIC(attributes(mles$mle_zeta_t)$m2logL, 2, N)
+  aic_geom = get_AIC(attributes(mles$mle_geom)$m2logL, 1, N)
+  aic_poi = get_AIC(attributes(mles$mle_poi)$m2logL, 1, N)
+  aic_alt = get_AIC(2*attributes(mles$mle_alt)$min, 2, N)
+  return ( list(aic_zeta, aic_zeta_0, aic_zeta_t, aic_geom, aic_poi, aic_alt))
+}
+```
+
+```{r}
+
+model_names = c("Zeta (without fixed gamma)", "Zeta (with fixed gamma = 2)", "Truncated Zeta", 
+            "Displaced Geometric", "Displaced Poisson", "Altmann Distribution")
+
+data_list <- list()
+
+# Loop through languages and compute AIC values
+for (lang in languages) {
+  aic_values <- compute_aic(lang)
+  data_list[[lang]] <- c(lang, aic_values)
+}
+
+# Combine the data into a data frame
+aic_data <- do.call(rbind, data_list)
+
+# Set column names
+colnames(aic_data) <- c("Language", model_names)
+
+# Print the table
+print(aic_data)
+```
+
+
+```{r}
+################################ CHECK USING ARTIFICIAL DATASETS ###############################
+#we want to check if:
+#- Select the right distribution.
+#- Obtain the right parameters of the distribution
+
+```
+
+
+```{r}
+
+######################## TEST FOR ZETA DATASETS ######################## 
+
+# Initialize an empty data frame to store the results
+Z_tests_results_df <- data.frame(
+  Z_value = character(0),
+  Model = character(0),
+  MLE_Results = character(0) # Create a column for MLE results
+)
+
+z_values = c(2, 2.5, 3)
+# Loop through each artificial dataset (ZETA)
+for (z_value in z_values) {
+  
+  file_name <- paste0("data/sample_of_zeta_with_parameter_", z_value, ".txt")
+  # Reading the out-degree sequences
+  x <- read.table(file_name, header = FALSE)$V1
+  
+  # Compute MLEs for the language
+  mle_results <- compute_mles(x)
+  
+  # Extract estimated parameters from MLE results
+  gamma_zeta_0 <- 2
+  gamma_zeta <- coef(mle_results$mle_zeta)[1]
+  gamma_zeta_t <- coef(mle_results$mle_zeta_t)[1]
+  kmax_zeta_t <- coef(mle_results$mle_zeta_t)[2]
+  lambda_poi <- coef(mle_results$mle_poi)[1]
+  q_geom <- coef(mle_results$mle_geom)[1]
+  gamma_alt <- coef(mle_results$mle_alt)[1]
+  delta_alt <- coef(mle_results$mle_alt)[2]
+  
+  # Add the results to the data frame
+  Z_tests_results_df <- rbind(Z_tests_results_df,
+    data.frame(
+      Z_value = z_value,
+      Model = "Zeta (with fixed gamma)",
+      MLE_Results = paste("gamma =", gamma_zeta_0)
+    ),
+    data.frame(
+      Z_value = z_value,
+      Model = "Zeta (without fixed gamma)",
+      MLE_Results = paste("gamma =", gamma_zeta)
+    ),
+    data.frame(
+      Z_value = z_value,
+      Model = "Truncated Zeta",
+      MLE_Results = paste("gamma =",gamma_zeta_t[1], "kmax =", kmax_zeta_t[1]) 
+    ),
+    data.frame(
+      Z_value = z_value,
+      Model = "Displaced Poisson",
+      MLE_Results = paste("lambda =", lambda_poi)
+    ),
+    data.frame(
+      Z_value = z_value,
+      Model = "Displaced Geometric",
+      MLE_Results = paste("q =", q_geom)
+    ),
+    data.frame(
+      Z_value = z_value,
+      Model = "Altmann Distribution",
+      MLE_Results = paste("gamma =", gamma_alt[1], "delta =", delta_alt[1])
+    )
+  )
+}
+
+  
+# Print the results as a table
+knitr::kable(Z_tests_results_df, caption = "Model Evaluation Results")
+
+```
+
+```{r}
+
+#function to compute AIC for each z-value in the test:
+compute_aic_test <-function(z_value){
+  file_name <- paste0("data/sample_of_zeta_with_parameter_", z_value, ".txt")
+  # Reading the out-degree sequences
+  x <- read.table(file_name, header = FALSE)$V1
+  N=length(x)
+  mles<-compute_mles( x)
+  aic_zeta = get_AIC(attributes(mles$mle_zeta)$m2logL, 1, N)
+  aic_zeta_0 = get_AIC(attributes(mles$mle_zeta_0)$m2logL, 0, N)
+  aic_zeta_t = get_AIC(attributes(mles$mle_zeta_t)$m2logL, 2, N)
+  aic_geom = get_AIC(attributes(mles$mle_geom)$m2logL, 1, N)
+  aic_poi = get_AIC(attributes(mles$mle_poi)$m2logL, 1, N)
+  aic_alt = get_AIC(2*attributes(mles$mle_alt)$min, 2, N)
+  return ( list(aic_zeta, aic_zeta_0, aic_zeta_t, aic_geom, aic_poi, aic_alt))
+}
+
+```
+
+```{r}
+data_list_q <- list()
+# Loop through languages and compute AIC values
+for (z_value in z_values) {
+  aic_values <- compute_aic_test(z_value)
+  data_list_q[[ as.character(z_value)]] <- c(z_value, aic_values)
+}
+
+# Combine the data into a data frame
+aic_data_q <- do.call(rbind, data_list_q)
+# Set column names
+colnames(aic_data_q) <- c("z_value", model_names)
+
+# Print the table
+print(aic_data_q)
+```
+
+```{r}
+
+######################## TEST FOR GEOMETRIC DATASETS ######################## 
+
+# Initialize an empty data frame to store the results
+geo_tests_results_df <- data.frame(
+  Q_value = character(0),
+  Model = character(0),
+  MLE_Results = character(0) # Create a column for MLE results
+)
+
+q_values = c(0.05, 0.4)
+# Loop through each artificial dataset (GEOMETRIC)
+for (q_value in q_values) {
+  file_name <- paste0("data/sample_of_geometric_with_parameter_", q_value, ".txt")
+  # Reading the out-degree sequences
+  x <- read.table(file_name, header = FALSE)$V1
+  
+  # Compute MLEs for the language
+  mle_results <- compute_mles(x)
+  
+  # Extract estimated parameters from MLE results
+  gamma_zeta_0 <- 2
+  gamma_zeta <- coef(mle_results$mle_zeta)[1]
+  gamma_zeta_t <- coef(mle_results$mle_zeta_t)[1]
+  kmax_zeta_t <- coef(mle_results$mle_zeta_t)[2]
+  lambda_poi <- coef(mle_results$mle_poi)[1]
+  q_geom <- coef(mle_results$mle_geom)[1]
+  gamma_alt <- coef(mle_results$mle_alt)[1]
+  delta_alt <- coef(mle_results$mle_alt)[2]
+  
+  # Add the results to the data frame
+  geo_tests_results_df <- rbind(geo_tests_results_df,
+    data.frame(
+      Q_value = q_value,
+      Model = "Zeta (with fixed gamma)",
+      MLE_Results = paste("gamma =", gamma_zeta_0)
+    ),
+    data.frame(
+      Q_value = q_value,
+      Model = "Zeta (without fixed gamma)",
+      MLE_Results = paste("gamma =", gamma_zeta)
+    ),
+    data.frame(
+      Q_value = q_value,
+      Model = "Truncated Zeta",
+      MLE_Results = paste("gamma =",gamma_zeta_t[1], "kmax =", kmax_zeta_t[1]) 
+    ),
+    data.frame(
+      Q_value = q_value,
+      Model = "Displaced Poisson",
+      MLE_Results = paste("lambda =", lambda_poi)
+    ),
+    data.frame(
+      Q_value = q_value,
+      Model = "Displaced Geometric",
+      MLE_Results = paste("q =", q_geom)
+    ),
+    data.frame(
+      Q_value = q_value,
+      Model = "Altmann Distribution",
+      MLE_Results = paste("gamma =", gamma_alt[1], "delta =", delta_alt[1])
+    )
+  )
+}
+
+  
+# Print the results as a table
+knitr::kable(geo_tests_results_df, caption = "Model Evaluation Results")
+
+
+```
+
+```{r}
+
+#function to compute AIC for each q-value in the test:
+compute_aic_test_q <-function(q_value){
+  file_name <- paste0("data/sample_of_geometric_with_parameter_", q_value, ".txt")
+  # Reading the out-degree sequences
+  x <- read.table(file_name, header = FALSE)$V1
+    N=length(x)
+  mles<-compute_mles( x)
+  aic_zeta = get_AIC(attributes(mles$mle_zeta)$m2logL, 1, N)
+  aic_zeta_0 = get_AIC(attributes(mles$mle_zeta_0)$m2logL, 0, N)
+  aic_zeta_t = get_AIC(attributes(mles$mle_zeta_t)$m2logL, 2, N)
+  aic_geom = get_AIC(attributes(mles$mle_geom)$m2logL, 1, N)
+  aic_poi = get_AIC(attributes(mles$mle_poi)$m2logL, 1, N)
+  aic_alt = get_AIC(2*attributes(mles$mle_alt)$min, 2, N)
+  return ( list(aic_zeta, aic_zeta_0, aic_zeta_t, aic_geom, aic_poi, aic_alt))
+}
+
+```
+
+```{r}
+
+data_list <- list()
+# Loop through languages and compute AIC values
+for (q_value in q_values) {
+  aic_values <- compute_aic_test_q(q_value)
+  data_list[[as.character(q_value)]] <- c(q_value, aic_values)
+}
+
+# Combine the data into a data frame
+aic_data <- do.call(rbind, data_list)
+
+# Set column names
+colnames(aic_data) <- c("q_value", model_names)
+
+# Print the table
+print(aic_data)
+
+```
+
+
+
+```{r} 
+############################################# UNCOMMENT TO DOWNLOAD THE PLOTS WITH THE FITTED MODEL for report #####################################
+# # Define truncated zeta and its PDF functions
+# truncated_zeta <- function(gamma, kmax) {
+#   sum(1 / (1:kmax)^gamma)
+# }
+# 
+# truncated_zeta_pdf <- function(k, gamma, kmax) {
+#   1 / (k^gamma) / truncated_zeta(gamma, kmax)
+# }
+# 
+# par(xpd=F)
+# 
+# for (lang in languages) {
+#   file_name <- paste0("data/", lang, "_out-degree_sequence.txt")
+#   
+#   # import degree sequence
+#   degree_sequence <- read.table(file_name, header = FALSE)$V1
+#   degree_spectrum <- table(degree_sequence)
+#   
+#   minus_log_likelihood_zeta_t <- function(gamma, kmax) {
+#    length(degree_sequence) * log(truncated_zeta(gamma, kmax)) + gamma * sum(log(degree_sequence))
+#   }
+#   #
+#   mle_zeta_t <- mle(minus_log_likelihood_zeta_t,
+#                    start = list(gamma = 3.0000001, kmax = length(degree_sequence)),
+#                    method = "L-BFGS-B",
+#                    lower = c(1.0000001, 1))
+#   # Extract parameters
+#   gamma_val <- summary(mle_zeta_t)@coef[1, 1]
+#   kmax_val <- summary(mle_zeta_t)@coef[2, 1]
+#   zeta_values <- sapply(1:max(degree_sequence), truncated_zeta_pdf, gamma = gamma_val, kmax = kmax_val)
+#   
+#   # Normalize to the number of nodes
+#   zeta_values <- zeta_values * length(degree_sequence)
+# 
+# 
+#   # Set up the PDF and layout for 2 best model plots side by side
+#   pdf(file=paste0(lang, "_Best_Model_Plots.pdf"), width=12, height=6) # Width and height are in inches
+#   layout(matrix(c(1,2), 1, 2, byrow = TRUE))
+#   
+#   # Plot linear-linear barplot
+#   barplot(degree_spectrum, main = paste0(lang, " Best Model Plot (Linear-Linear Scale)"),
+#          xlab = "degree", ylab = "number of vertices")
+#   lines(zeta_values, col = "red", lwd = 2)
+#   legend(x = "topright", legend = c("real data", "truncated zeta"),
+#         fill = c("gray", "red"))
+#   
+#   # Plot log-log barplot
+#   barplot(degree_spectrum, main = paste0(lang, " Best Model Plot (Log-Log Scale)"),
+#          xlab = "degree", ylab = "number of vertices", log = "xy")
+#   lines(zeta_values, col = "red", lwd = 2)
+#   legend(x = "topright", legend = c("real data", "truncated zeta"),
+#         fill = c("gray", "red"))
+# 
+#   dev.off() 
+# }
+```
+
+
+
+```
