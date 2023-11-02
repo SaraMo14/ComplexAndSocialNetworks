@@ -18,7 +18,7 @@ You can find the details here :
     - [Report](./lab3/csn_lab3_report.pdf)
     - [Code](./lab3/report_lab3.pdf)
 - Non-linear regression on dependency trees
-    - [Guide](./lab4/.pdf)
+    - [Guide](./lab4/session3.pdf)
     - [Report](./lab4/csn_lab4_report.pdf)
     - [Code](./lab4/report_lab4.pdf)
 
