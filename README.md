@@ -20,5 +20,5 @@ You can find the details here :
 - Non-linear regression on dependency trees
     - [Guide](./lab4/session3.pdf)
     - [Report](./lab4/csn_lab4_report.pdf)
-    - [Code](./lab4/report_lab4.pdf)
+    - [Code](./lab4/code_lab4.Rmd)
 
