@@ -1,0 +1,632 @@
+---
+title: "R Notebook Lab 4"
+output: html_notebook
+# Mean length group. Investigate the scaling of <d> as a function of n.
+---
+
+```{r}
+requiredPackages <-
+   c("igraph",
+     "ggplot2",
+     "data.table",
+     "knitr",
+     "rstudioapi",
+     "xtable",
+     "lmtest",
+     "knitr")
+
+for (pac in requiredPackages) {
+   if (!require(pac,  character.only = TRUE)) {
+      install.packages(pac, repos = "http://cran.rstudio.com")
+      library(pac,  character.only = TRUE)
+   }
+}
+rm(pac)
+rm(requiredPackages)
+setwd(dirname(rstudioapi::getActiveDocumentContext()$path))
+```
+
+```{r}
+languages = c(
+   "Arabic",
+   "Basque",
+   "Catalan",
+   "Chinese",
+   "Czech",
+   "English",
+   "Greek",
+   "Hungarian",
+   "Italian",
+   "Turkish"
+)
+
+```
+
+# **SUMMARY TABLE**
+
+```{r}
+load_data <- function(language) {
+  # loading data
+  df = read.table(
+      paste("./data/", language, "_dependency_tree_metrics.txt" , sep = ""),
+      header = FALSE
+  )
+  colnames(df) = c("vertex" , "k2" , "d")
+  
+  # order vertices
+  return (df[order(df$vertex), ])
+}
+```
+
+```{r}
+check_conditions <- function (df) {
+   return (subset(df,
+    (4 - 6 / vertex <= k2) &
+    (k2 <= vertex - 1) &
+    (vertex / (8 * (vertex - 1)) * k2 + 0.5 <= d) &
+    (d <= vertex - 1)
+))
+}
+
+```
+
+```{r}
+summary_table <- data.table(
+      "Language" = character(),
+      "N" = numeric(),
+      "mu_n" = numeric(),
+      "sigma_n" = numeric(),
+      "mu_d" = numeric(),
+      "sigma_d" = numeric()
+   )
+
+
+for (language in languages) {
+  print(language) 
+  
+  # loading data
+  df = load_data(language)
+  
+  # filter data that satisfy the conditions
+  df <- check_conditions(df)
+
+
+  N = length(df$vertex)
+  mu_n = mean(df$vertex) #mean of n
+  sigma_n = sd(df$vertex)  #standard deviation of n 
+  mu_d = mean(df$d)  #mean of <d>
+  sigma_d = sd(df$d) #standard deviation of <d>
+  
+  summary_table <-rbind(summary_table,
+                  list(language, N, mu_n, sigma_n, mu_d, sigma_d))
+
+}
+```
+
+```{r}
+summary_table
+```
+
+
+
+```{r}
+
+#library(minpack.lm)
+
+# Create a function to fit the models and plot residuals
+fit_and_plot_model <- function(model_formula, model_name, data, start_values) {
+  
+  # Fit the nonlinear regression model
+  nl_model <- nls(model_formula, data = data, start = start_values)
+  
+  # Create a scatterplot of fitted values against residuals
+  plot(fitted(nl_model), abs(resid(nl_model)), xlab = "Fitted Values", ylab = "Abs. Residuals", main = model_name)
+
+}
+
+```
+
+```{r}
+
+
+#To check for homoscedasticity in data by visual inspection
+
+par(mfrow = c(2, 3))
+
+for (language in languages) {
+  print(language) 
+  
+  df = check_conditions(load_data(language))
+  mean_df = aggregate(df, list(df$vertex), mean)
+  variance_df = aggregate(df, list(df$vertex), var)
+  variance_df[is.na(variance_df)] <- 0
+
+  #png(file=paste(language, "_residuals.png"))
+
+    
+  #variance analysis
+  plot(variance_df$Group.1, variance_df$d, xlab = "N. Vertex", ylab = "Variance", main = paste(language, " variance plot"))
+  lines(lowess(variance_df$Group.1, variance_df$d), col="red")
+
+  
+  #residual analysis
+  
+  lm1 = lm(log(d) ~ log(vertex), data)
+  lm2 = lm(log(d) ~ log(vertex), data)
+  lm3 = lm(log(d) ~ vertex, data)
+  lm4 = lm(d ~ log(vertex), data)
+  lm5 = lm(log(d) ~ log(vertex) + vertex , data)
+  initial_values_1 <- list(b = coef(lm1)[2])
+  initial_values_2 <- list(a =  exp(coef(lm2)[1]), b = coef(lm2)[2])
+  initial_values_3 <- list(a =  exp(coef(lm3)[1]), c = coef(lm3)[2])
+  initial_values_4<-list(a = coef(lm4)[1] )
+  initial_values_5 = list(a =  exp(coef(lm5)[1]), b = coef(lm5)[2], c = coef(lm5)[3])
+  
+  # Fit and plot residuals for the six models
+  
+  null_model = lm(log(d) ~ log(vertex), df)
+  residuals_null = residuals(null_model)
+  fitted_values_null = predict(null_model)
+
+  plot(fitted_values_null, abs(residuals_null), xlab = "Fitted Values", ylab = "Abs. Residuals", 
+       main = paste(language, "- Null Model"))
+  
+  fit_and_plot_model(d ~(0.5) * vertex ^ b, paste(language, " - Model 1"), df, initial_values_1)
+  fit_and_plot_model(d ~a * (vertex^b),  paste(language, "- Model 2"), df, initial_values_2)
+  fit_and_plot_model(d ~a * (exp(vertex*c)),  paste(language, " - Model 3"), df, initial_values_3)
+  fit_and_plot_model(d ~a*log(vertex),  paste(language, " - Model 4"), df, initial_values_4)
+  fit_and_plot_model(d ~a * (vertex^b) *exp(c*vertex) ,  paste(language, " - Model 5"), df, initial_values_5)
+
+  #dev.print(png, file = paste(language,"_residual_plots.png"), width = 600, height = 400)
+}
+
+
+```
+
+```{r}
+#From the results above we understand that the homocesdasticity doesn't hold for any language. Thus, we decide that nls(...) is feeded with the output of aggregate(...) and not the original data.
+```
+
+
+# PRELIMINARY PLOTS
+
+```{r}
+
+get_results <- function(language_values, nonlinear_model, model_name) {
+  
+        RSS = deviance(nonlinear_model)
+        AIC <- AIC(nonlinear_model)
+        s = sqrt(RSS / df.residual(nonlinear_model)) 
+
+        #parameters giving the best fit
+        coeff =  coef(nonlinear_model)
+        cat("Parameters giving the best fit: ", coeff, "\n")
+        cat("RSS: ", RSS, "\nAIC: ", AIC, "\nS: ", s, "\ncoeff: ", coeff)
+        
+        #TODO: plot only the best fit model
+        plot(
+            log(language_values$vertex),
+            log(language_values$d) ,
+            xlab = "log(vertices)" ,
+            ylab = "log(<d>)",
+            main = model_name
+        )
+        
+        # Calculate the fitted values
+        fitted_values <- fitted(nonlinear_model)
+        
+        # Apply a transformation to handle both positive and negative values
+        lines(log(language_values$vertex), log(fitted_values), col = "green")
+        legend("topleft", legend=c("mean <d>", "Fitted model"), col=c("black", "green"), pch = c(1, NA), lwd = c(NA, 2))
+        
+        
+        return(list(
+            "RSS" = RSS,
+            "AIC" = AIC,
+            "S" = s,
+            "coeff" = coeff
+        ))
+        
+    }
+```
+
+```{r}
+
+non_linear_models_fitting_and_plotting <- function (mean_df, initial_values, model_formula, model_name, max_iter=50,algorithm = "default", lower=NULL, upper = NULL) {
+    cat("\n\n\n", model_name, "\n")
+    formula_string <- paste("d ~", model_formula)
+    formula <- as.formula(formula_string)
+
+        nonlinear_model = nls(
+            formula = formula,
+            data = mean_df,
+            start = initial_values,
+            trace = TRUE,
+            control = nls.control(maxiter = max_iter, minFactor = 1e-06, warnOnly = TRUE ),
+            algorithm = algorithm,
+            lower = lower ,
+            upper = upper
+            )
+        
+
+        model <- get_results(mean_df,  nonlinear_model , model_name)
+}
+```
+
+```{r}
+#define empty lists that will keep track of the metrics for each model and language
+s_table <- data.table(
+        "Language" = character(),
+        "0" = numeric(),
+        "1" = numeric(),
+        "2" = numeric(),
+        "3" = numeric(),
+        "4" = numeric(),
+        "5" = numeric(),
+        "1+" = numeric(),
+        "2+" = numeric(),
+        "3+" = numeric(),
+        "4+" = numeric(),
+        "5+" = numeric(),
+        stringsAsFactors = FALSE
+    )
+    
+    AIC_table <- data.table(
+        "Language" = character(),
+        "0" = numeric(),
+        "1" = numeric(),
+        "2" = numeric(),
+        "3" = numeric(),
+        "4" = numeric(),
+        "5" = numeric(),
+        "1+" = numeric(),
+        "2+" = numeric(),
+        "3+" = numeric(),
+        "4+" = numeric(),
+        "5+" = numeric(),
+        stringsAsFactors = FALSE
+    )
+    
+    deltaAIC_table <- data.table(
+        "Language" = character(),
+        "0" = numeric(),
+        "1" = numeric(),
+        "2" = numeric(),
+        "3" = numeric(),
+        "4" = numeric(),
+        "5" = numeric(),
+        "1+" = numeric(),
+        "2+" = numeric(),
+        "3+" = numeric(),
+        "4+" = numeric(),
+        "5+" = numeric(),
+        stringsAsFactors = FALSE
+    )
+    
+    initial_values_table <- data.table(
+        "Language" = character(),
+        "1b" = numeric(),
+        "2a" = numeric(),
+        "2b" = numeric(),
+        "3a" = numeric(),
+        "3c" = numeric(),
+        "4a" = numeric(),
+        "5a" = numeric(),
+        "5b" = numeric(),
+        "5c" = numeric(),
+        "1+b" = numeric(),
+        "1+d" = numeric(),
+        "2+a" = numeric(),
+        "2+b" = numeric(),
+        "2+d" = numeric(),
+        "3+a" = numeric(),
+        "3+c" = numeric(),
+        "3+d" = numeric(),
+        "4+a" = numeric(),
+        "4+d" = numeric(),
+        "5+a" = numeric(),
+        "5+b" = numeric(),
+        "5+c" = numeric(),
+        "5+d" = numeric(),
+        stringsAsFactors = FALSE
+    )
+    
+    final_values_table <- data.table(
+        "Language" = character(),
+        "1b" = numeric(),
+        "2a" = numeric(),
+        "2b" = numeric(),
+        "3a" = numeric(),
+        "3c" = numeric(),
+        "4a" = numeric(),
+        "5a" = numeric(),
+        "5b" = numeric(),
+        "5c" = numeric(),
+        "1+b" = numeric(),
+        "1+d" = numeric(),
+        "2+a" = numeric(),
+        "2+b" = numeric(),
+        "2+d" = numeric(),
+        "3+a" = numeric(),
+        "3+c" = numeric(),
+        "3+d" = numeric(),
+        "4+a" = numeric(),
+        "4+d" = numeric(),
+        "5+a" = numeric(),
+        "5+b" = numeric(),
+        "5+c" = numeric(),
+        "5+d" = numeric(),
+        stringsAsFactors = FALSE
+    )
+    
+```
+
+
+
+
+```{r}
+#loop for creating preliminary plots and fitting models, for each language
+for (language in languages) {
+  
+  cat("\n",language) 
+  
+  df = check_conditions(load_data(language))
+  plot(df$vertex, df$d, xlab = "vertices", ylab = "<d>", main=paste(language, "- <d>"))
+  
+  plot(log(df$vertex), log(df$d), xlab = "log(vertices)", ylab = "log(<d>)", main = paste(language, "- <d> in log-log scale"))
+  
+  mean_df = aggregate(df, list(df$vertex), mean)
+  
+  plot(mean_df$vertex, mean_df$d, xlab = "vertices", ylab = "mean <d>", main = paste(language, "- Mean <d> "))
+  plot(log(mean_df$vertex), log(mean_df$d), xlab = "log(vertices)", ylab = "log(mean <d>)", main = paste(language, "- Mean <d> in log-log scale"))
+
+  
+  plot(log(df$vertex), log(df$d), xlab = "log(vertices)", ylab = "log(<d>)", main = paste(language, "- Null model"))
+  lines(log(mean_df$vertex),log(mean_df$d), col = "green")
+  lines(log(mean_df$vertex),log((mean_df$vertex+1)/3), col = "red")
+  legend("topleft", legend=c("log(<d>)", "mean log(<d>)", "Null Model"), col=c("black", "green", "red"), pch = c(1, NA, NA), lwd = c(NA, 2, 2))
+
+  
+  plot(log(mean_df$vertex), log(mean_df$d), xlab = "log(vertices)", ylab = "log(<d>)", main = paste(language, "- Null model"))
+  lines(log(mean_df$vertex),log(mean_df$d), col = "green")
+  lines(log(mean_df$vertex),log((mean_df$vertex+1)/3), col = "red")
+  legend("topleft", legend=c("log(<d>)", "mean log(<d>)", "Null Model"), col=c("black", "green", "red"), pch = c(1, NA, NA), lwd = c(NA, 2, 2))
+
+  
+   ################ Model 0   #################
+  cat("\n Model 0 \n")
+        
+  model_0_RSS <-sum(( mean_df$d - (mean_df$vertex + 1) / 3 ) ^ 2)
+  model_0_n <- length(mean_df$vertex)
+  p <- 0
+  model_0_s <- sqrt(model_0_RSS / (model_0_n - p))
+  model_0_AIC <-model_0_n * log(2 * pi) + model_0_n * log(model_0_RSS / model_0_n) + model_0_n + 2 *(p + 1)
+  cat("\nRSS: ", model_0_RSS)
+  cat("\nAIC: ", model_0_AIC)
+  cat("\nS: ", model_0_s)
+  cat("\n0 Parameters")
+
+  data <- mean_df
+   ################ Model 1   #################
+  lm1 = lm(log(d) ~ log(vertex) , data)
+  initial_values_1 <- list(b = coef(lm1)[2])
+  results_1 <- non_linear_models_fitting_and_plotting(data, initial_values_1, model_formula = "((0.5) * vertex) ^ b", model_name="Model 1")
+
+
+  ################ Model 2   #################
+  lm2 = lm(log(d) ~ log(vertex) , data)
+  initial_values_2 <- list(a =  exp(coef(lm2)[1]), b = coef(lm2)[2])
+  results_2 <- non_linear_models_fitting_and_plotting(data, initial_values_2, model_formula = "a * (vertex^b)", model_name="Model 2 - Power Law Model ")
+
+
+  ################ Model 3  #################
+  lm3 = lm(log(d) ~ vertex , data)
+  initial_values_3 <- list(a =  exp(coef(lm3)[1]), c = coef(lm3)[2])
+  results_3 <- non_linear_models_fitting_and_plotting(data, initial_values_3, model_formula = "a*(exp(vertex*c))", model_name="Model 3 - Exponential Model")
+
+
+  ################ Model 4  #################
+  lm4 = lm(d ~ log(vertex) , data)
+  initial_values_4<-list(a = coef(lm4)[1] )
+  results_4 <- non_linear_models_fitting_and_plotting(data, initial_values_4, model_formula = "a*log(vertex)", model_name=" Model 4 - Logarithmic Model")
+
+
+  ################ Model 5  #################
+  lm5 = lm(log(d) ~ log(vertex) + vertex , data)
+  initial_values_5 = list(a =  exp(coef(lm5)[1]), b = coef(lm5)[2], c = coef(lm5)[3])
+  results_5 <- non_linear_models_fitting_and_plotting(data, initial_values_5, model_formula = "a * (vertex^b) *exp(c*vertex)", model_name=" Model 5 - Generalized Power Law Model", max_iter = 1000, algorithm = "port")
+
+  
+  ################ MODELS WITH ADDITIONAL PARAMETER d ###################
+  #The warning messages tell us that in the process of searching for the minimum, the function encountered illegal values that caused it to return a value of NA, or missing. Apparently the algorithm then recovered from this.
+  
+   ################ Model 1+   #################
+  #initial_values_1_plus <- list(b = coef(lm1)[2], d = 0)
+  initial_values_1_plus <- list(b = results_1$coeff, q=0)
+  results_1_plus <- non_linear_models_fitting_and_plotting(data, initial_values_1_plus, model_formula = "((0.5) * vertex) ^ b + q", model_name="Model 1+", max_iter = 1000,  algorithm = "port")#, lower = -2, upper = 10.0)
+
+ 
+  ################ Model 2+   #################
+#initial_values_2_plus <- list(a =  exp(coef(lm2)[1]), b = coef(lm2)[2], d = 0)
+  initial_values_2_plus <- list(a = results_2$coeff['a'], b =  results_2$coeff['b'], q = 0)
+results_2_plus <- non_linear_models_fitting_and_plotting(data, initial_values_2_plus, model_formula = "a*(vertex^b) + q", model_name="Model 2+ - Power Law Model ", algorithm = "port", lower = -2, upper = 10.0)
+
+  ################ Model 3+  #################
+initial_values_3_plus <- list(a = results_3$coeff['a'], c = results_3$coeff['c'], q =0)
+  results_3_plus <- non_linear_models_fitting_and_plotting(data, initial_values_3_plus, model_formula = "a*(exp(vertex*c)) + q", model_name="Model 3+ - Exponential Model", algorithm = "port",  lower = -10, upper = 10)
+
+  ################ Model 4+  #################
+  initial_values_4_plus<-list(a = results_4$coeff, q = 0)
+  results_4_plus <- non_linear_models_fitting_and_plotting(data, initial_values_4_plus, model_formula = "a*log(vertex) + q", model_name=" Model 4+ - Logarithmic Model", algorithm = "port")#, lower = -10, upper = 10)
+        
+  
+  ################ Model 5+  #################
+  initial_values_5_plus = list(a=results_5$coeff['a'],
+                    b=results_5$coeff['b'],
+                    c =results_5$coeff['c'], q=0)
+
+  results_5_plus <- non_linear_models_fitting_and_plotting(data, initial_values_5_plus, model_formula = "a * (vertex^b) *exp(c*vertex) + q", model_name=" Model 5+ - Generalized Power Law Model", algorithm = "port", lower = -5, upper = 5)# list(-10, -10, -10, 0), upper = 10)
+    
+
+  
+  
+  AIC_table <-
+            rbind(
+                AIC_table,
+                list(
+                    language,
+                    model_0_AIC,
+                    results_1$AIC,
+                    results_2$AIC,
+                    results_3$AIC,
+                    results_4$AIC,
+                    results_5$AIC,
+                    results_1_plus$AIC,
+                    results_2_plus$AIC,
+                    results_3_plus$AIC,
+                    results_4_plus$AIC,
+                    results_5_plus$AIC
+                )
+            )
+        
+  s_table <-rbind(
+                s_table,
+                list(
+                    language,
+                    model_0_s,
+                    results_1$S,
+                    results_2$S,
+                    results_3$S,
+                    results_4$S,
+                    results_5$S,
+                    results_1_plus$S,
+                    results_2_plus$S,
+                    results_3_plus$S,
+                    results_4_plus$S,
+                    results_5_plus$S
+                )
+            )
+        
+        minAIC <-
+            min(
+                c(
+                    model_0_AIC,
+                    results_1$AIC,
+                    results_2$AIC,
+                    results_3$AIC,
+                    results_4$AIC,
+                    results_5$AIC,
+                    results_1_plus$AIC,
+                    results_2_plus$AIC,
+                    results_3_plus$AIC,
+                    results_4_plus$AIC,
+                    results_5_plus$AIC
+                )
+            )
+        
+        deltaAIC_table <-
+            rbind(
+                deltaAIC_table,
+                list(
+                    language,
+                    model_0_AIC - minAIC,
+                    results_1$AIC - minAIC,
+                    results_2$AIC - minAIC,
+                    results_3$AIC - minAIC,
+                    results_4$AIC - minAIC,
+                    results_5$AIC - minAIC,
+                    results_1_plus$AIC - minAIC,
+                    results_2_plus$AIC - minAIC,
+                    results_3_plus$AIC - minAIC,
+                    results_4_plus$AIC - minAIC,
+                    results_5_plus$AIC - minAIC
+                )
+            )
+        initial_values_table <-
+            rbind(
+                initial_values_table,
+                list(
+                    language,
+                    initial_values_1$b,
+                    initial_values_2$a,
+                    initial_values_2$b,
+                    initial_values_3$a,
+                    initial_values_3$c,
+                    initial_values_4$a,
+                    initial_values_5$a,
+                    initial_values_5$b,
+                    initial_values_5$c,
+                    initial_values_1_plus$b,
+                    initial_values_1_plus$q,
+                    initial_values_2_plus$a,
+                    initial_values_2_plus$b,
+                    initial_values_2_plus$q,
+                    initial_values_3_plus$a,
+                    initial_values_3_plus$c,
+                    initial_values_3_plus$q,
+                    initial_values_4_plus$a,
+                    initial_values_4_plus$q,
+                    initial_values_5_plus$a,
+                    initial_values_5_plus$b,
+                    initial_values_5_plus$c,
+                    initial_values_5_plus$q
+                 
+                )
+            )
+        
+        final_values_table <-
+            rbind(
+                final_values_table,
+                list(
+                    language,
+                    results_1$coeff['b'],
+                    results_2$coeff['a'],
+                    results_2$coeff['b'],
+                    results_3$coeff['a'],
+                    results_3$coeff['c'],
+                    results_4$coeff['a'],
+                    results_5$coeff['a'],
+                    results_5$coeff['b'],
+                    results_5$coeff['c'],
+                    results_1_plus$coeff['b'],
+                    results_1_plus$coeff['q'],
+                    results_2_plus$coeff['a'],
+                    results_2_plus$coeff['b'],
+                    results_2_plus$coeff['q'],
+                    results_3_plus$coeff['a'],
+                    results_3_plus$coeff['c'],
+                    results_3_plus$coeff['q'],
+                    results_4_plus$coeff['a'],
+                    results_4_plus$coeff['q'],
+                    results_5_plus$coeff['a'],
+                    results_5_plus$coeff['b'],
+                    results_5_plus$coeff['c'],
+                    results_5_plus$coeff['q']
+                )
+            )
+        
+}
+```
+```{r}
+kable(AIC_table)
+```
+
+```{r}
+
+kable(s_table)
+```
+
+```{r}
+kable(deltaAIC_table)
+```
+
+```{r}
+kable(initial_values_table)
+        
+```
+
+
+```{r}
+kable(final_values_table)
+        
+```
