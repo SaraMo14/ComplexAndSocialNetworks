@@ -10,7 +10,7 @@ You can find the details here :
     - [Report](./lab1/report_lab1.pdf)
     - [Code](./lab1/lab1_partAB_finalversion.pdf)
 - Analysis of the degree distribution
-    - [Guide](./lab4/degree_distribution.pdf)
+    - [Guide](./lab2/degree_distribution.pdf)
     - [Report](./lab2/CSN2_final_version.pdf)
     - [Code](./lab2/notebook.Rmd)
 - Significance of network metrics
