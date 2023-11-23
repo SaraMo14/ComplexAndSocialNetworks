@@ -1,0 +1,545 @@
+---
+title: "dd"
+output:
+  html_document: default
+  word_document: default
+---
+## Intro
+
+```{r}
+# install.packages("dplyr")
+library(dplyr)
+require(igraph)
+require(clustAnalytics)
+require(xtable)
+seed <- 1234
+printf <- function(...)print(sprintf(...))
+```
+
+### Exemple of clustering algorithms
+
+```{r}
+data(karate, package="igraphdata")
+data(enron, package="igraphdata")
+wc <- walktrap.community(karate)
+printf("modularity: %s", modularity(wc))
+plot(wc, karate)
+```
+
+```{r}
+plot(karate, vertex.color=membership(wc))
+```
+
+```{r}
+fc <- fastgreedy.community(karate)
+dendPlot(fc)
+```
+
+### Adjacency matrix
+
+```{r}
+as_adjacency_matrix(as.undirected(karate, mode = "each"))
+```
+
+### Evaluate significance
+
+```{r warning=FALSE}
+evaluate_significance(karate,alg_list=list(Louvain=cluster_louvain, "Label Propagation"= cluster_label_prop, Walktrap=cluster_walktrap, "Edge Betweeness"=cluster_edge_betweenness), gt_clustering=V(karate)$Faction)
+```
+
+### Generate controlled examples of networks with communities
+
+```{r}
+B <- matrix(c(1, 0.2, 0.2, 1), ncol=2)
+G <- barabasi_albert_blocks(m=4, p=c(0.5, 0.5), B=B, t_max=100, type="Hajek", sample_with_replacement = FALSE)
+plot(G, vertex.color=(V(G)$label),vertex.label=NA,vertex.size=10)
+```
+
+## Task
+
+### Jaccard Index
+
+```{r}
+# Function to calculate Jaccard index between two sets
+jaccardIndex <- function(set1, set2) {
+    intersection <- length(intersect(set1, set2))
+    union_size <- length(union(set1, set2))
+    
+    if (union_size == 0) {
+      return(0)  # Avoid division by zero
+    } else {
+      return(intersection / union_size)
+    }
+  }
+  
+```
+
+### Jaccard similarity
+
+```{r}
+
+jaccard_sim <- function(cluster1, cluster2, name1="", name2="") {
+  
+  # Get unique cluster labels from both clusterings
+  labels1 <- unique(cluster1)
+  labels2 <- unique(cluster2)
+    # Initialize a matrix to store Jaccard indices
+  result_matrix <- matrix(0, nrow = length(labels1), ncol = length(labels2), dimnames = list(labels1, labels2))
+  
+  # Calculate Jaccard indices between clusters
+  for (label1 in labels1) {
+    for (label2 in labels2) {
+      nodes1 <- which(cluster1 == label1)
+      nodes2 <- which(cluster2 == label2)
+      
+      jaccard_value <- jaccardIndex(nodes1, nodes2)
+      result_matrix[label1, label2] <- jaccard_value
+    }
+  }
+  rows <- c()
+  cols <- c()
+  for (i in 1:length(labels1)) {
+    rows <- append(rows, sprintf("%s-%d", name1, labels1[i]))
+  }
+  for (i in 1:length(labels2)) {
+    cols <- append(cols, sprintf("%s-%d", name2, labels2[i]))
+  }
+  rownames(result_matrix) <- rows
+  colnames(result_matrix) <- cols
+  
+  return(result_matrix)
+}
+```
+
+### Matching clusters
+
+```{r}
+max_index <- function(vec) { # Get the index of the maximum
+  return(which.max(vec))
+}
+
+match_clusters <- function(JS, name1, name2) { # Match the clusters
+  max_indices <- apply(JS, 1, max_index)
+  keys <- c()
+  values <- list()
+  for (i in 1:nrow(JS)) {
+    name = sprintf("%s.%i,%s.%i", name1, i, name2, max_indices[i])
+    keys <- append(keys, name)
+    values <- append(values, JS[i, max_indices[i]])
+  }
+  return(setNames(values, keys))
+}
+```
+
+### Weighted Mean
+
+```{r}
+
+Wmean <- function(MC_values, reference_clustering){
+  nr_nodes <- table(reference_clustering)
+  weights <- numeric(length(unique(reference_clustering)))
+  w_mean <- 0
+  for(i in unique(reference_clustering)){
+    #calculate weighted sum
+    w_mean <- w_mean + (nr_nodes[i] / sum(nr_nodes)) * as.numeric(unlist(MC_values)[i])
+  }
+  return(w_mean)
+}
+
+#The global Jaccard similarity of the two clusterings is computed as the weighted mean of the Jaccard indices of the most similar clusters, with the weights given by the fraction of the number of nodes in each cluster. This is done because clusters with more nodes should have a greater influence on the overall similarity measure. This measure gives an indication of how similar the two clusterings are, with a higher value indicating greater similarity. It takes into account both the size and the composition of the clusters. If two clusterings are identical, the Jaccard similarity will be 1. If they are completely dissimilar, the Jaccard similarity will be 0.
+```
+
+### CLUSTERINGS
+
+```{r}
+# Function to compute clusterings given the input  data
+compute_clusterings <- function(graph) {
+ 
+# Louvain algorithm
+louvain_clust <- multilevel.community(graph)
+memb_louvain <- membership(louvain_clust)
+
+# Label Propagation algorithm
+label_propagation_clust <- label.propagation.community(graph)
+memb_label_propagation <- membership(label_propagation_clust)
+
+# Walktrap algorithm
+walktrap_clust <- walktrap.community(graph)
+memb_walktrap <- membership(walktrap_clust)
+
+# Edge Betweenness algorithm
+edge_betweenness_clust <- edge.betweenness.community(graph)
+memb_edge_betweenness <- membership(edge_betweenness_clust)
+
+# # Leading Eigenvector algorithm
+leading_eigenvector_clust <- leading.eigenvector.community(graph)
+memb_leading_eigenvector <- membership(leading_eigenvector_clust)
+
+# # Spinglass algorithm
+# spinglass_clust <- spinglass.community(graph)
+# memb_spinglass <- membership(spinglass_clust)
+# 
+# # Infomap algorithm
+# infomap_clust <- infomap.community(graph)
+# memb_infomap <- membership(infomap_clust)
+
+# Create a list of clustering results
+list_clusterings <- list(
+  Louvain = memb_louvain,
+  LabelPropagation = memb_label_propagation,
+  Walktrap = memb_walktrap,
+  EdgeBetweenness = memb_edge_betweenness,
+  LeadingEigenvector = memb_leading_eigenvector
+  # Spinglass = memb_spinglass,
+  # Infomap = memb_infomap
+)
+
+
+  return(list_clusterings)
+}
+
+
+```
+
+### PLOTS
+
+```{r}
+# function to plot communities
+plot_clusterings<-function(data, list_clusterings, gt = NULL){#gets the data and the labelled list of clusterings
+  for (i in seq_along(list_clusterings)){
+    label <- names(list_clusterings)[i]
+
+    # Extract membership vector from the list
+    membership_vector <- list_clusterings[[i]]
+    plot(
+      data, 
+      main = paste(label, "Communities"), 
+      vertex.color = membership_vector, 
+      vertex.frame.color = "white",
+      edge.color = "gray",
+      layout = layout_with_fr(data),
+      vertex.label=NA
+      
+    )
+  }
+  
+  if (!is.null(gt)) {
+    plot(
+      data, 
+      main = paste("Ground Truth Communities"), 
+      vertex.color = gt, 
+      vertex.frame.color = "white",
+      edge.color = "gray",
+      layout = layout_with_fr(data),
+      vertex.label = NA)
+
+  }
+}
+
+```
+
+### 1. KARATE
+
+```{r}
+#karate <- make_graph("Zachary")
+clusterings <- compute_clusterings(karate)
+#plot comunities for karate
+plot_clusterings(karate, clusterings)
+```
+
+```{r}
+JS <- jaccard_sim(V(karate)$Faction, clusterings$Louvain)
+JS
+```
+
+```{r}
+MC <- match_clusters(JS, "Gt", "Lv")
+print(MC)
+```
+
+```{r}
+Wmean(MC,V(karate)$Faction) 
+```
+
+### Deliverables
+
+#### Choose the best-ranked clustering
+
+```{r}
+ alg_list <- list(
+   Louvain = cluster_louvain,
+   "Label Propagation" = cluster_label_prop,
+   Walktrap = cluster_walktrap,
+   "Edge Betweenness" = cluster_edge_betweenness,
+   #Optimal= cluster_optimal,
+  LeadingEigenvector = cluster_leading_eigen#,
+ )
+
+# function to determine the best-ranked clustering among a set of clusterings for a dataset with no ground truth
+choose_best_algo <- function(G, alg_list, gt_clustering = NULL) { # Choose the best algo
+  # Evaluate the significance of the graph's clusters
+  results <- evaluate_significance(
+            G,
+            alg_list = alg_list,
+            no_clustering_coef = FALSE,
+            gt_clustering = gt_clustering,
+            w_max = NULL
+          )
+
+  #to access you can use: results["size", ] or resuls[, "Louvain"] based on what you need
+  
+   best_scores<- list()
+   for (algo in colnames(results)) {
+     scores <- results[, algo]
+     best_scores[algo] <- 2*scores["modularity"] + scores["clustering coef"] - (scores["expansion"]/max(scores["expansion"])) - scores["norm cut"] -  scores["conductance"]
+   }
+   # Find the algorithm with the maximum score
+  best_algorithm <- names(which.max(unlist(best_scores)))
+  
+ 
+ # Print the scores in a table
+  best_scores_df <- as.data.frame(do.call(rbind, best_scores))
+  colnames(best_scores_df) <- "Maximized Total Score"
+  print(best_scores_df)
+  
+  return(best_algorithm)
+}
+```
+
+#### Compute Jaccard Similarity between clustering
+
+```{r}
+step <- function(memb1, memb2, name1, name2) { # Compute things between 2 clustering
+  printf("%s --- %s", name1, name2)
+  JS <- jaccard_sim(memb1, memb2, name1, name2)
+  print(data.frame(JS))
+  print(xtable(JS))
+  MC <- match_clusters(JS, name1, name2)
+  reference_clustering <-memb1
+  wmean <- Wmean(MC, reference_clustering )
+  #printf("wmean(%s,%s) = %s", name1, name2, wmean)
+  return (wmean)
+}
+```
+
+```{r}
+significance_evaluation <- function(G, alg_list, memb_gt = NULL) {
+  clusterings <- compute_clusterings(G)
+  #plot clusterings to allow visual comparison
+  plot_clusterings(G, clusterings, memb_gt)
+  #
+  cat("","\n")
+  wmean <- c()
+  names<-c()
+  df<-data.frame()
+  
+  #defined ground truth
+  if (!is.null(memb_gt)) {
+    
+    names <- names(alg_list)#c("Louvain", "Label Propagation", "Walktrap", "Edge Betweeness")
+    wmean <- append(wmean, step(clusterings$Louvain, memb_gt, "LV", "GT"))
+    wmean <- append(wmean, step(clusterings$LabelPropagation, memb_gt, "LP", "GT"))
+    wmean <- append(wmean, step(clusterings$Walktrap, memb_gt, "W", "GT"))
+    wmean <- append(wmean, step(clusterings$EdgeBetweenness, memb_gt, "EB", "GT"))
+    #wmean <- append(wmean, step(clusterings$Optimal, memb_gt, "O", "GT"))
+    wmean <- append(wmean, step(clusterings$LeadingEigenvector, memb_gt, "LE", "GT"))
+    best_algo <- choose_best_algo(G, alg_list, memb_gt)
+    df<-data.frame("Algorithm"=names, "Ground truth"=wmean)
+    
+  } else { #no ground truth
+    best_algo <- choose_best_algo(G, alg_list)
+    best_memb <- clusterings[[best_algo]]
+    best_memb_little_name <- switch(best_algo, "Louvain"="LV", "Label Propagation"="LP", "Walktrap"="W", "Edge Betweeness"= "EB",  "LeadingEigenvector" = "LE")
+    wmean <- c()
+    names <- c()
+    #TODO: fix the error since step wants a numeric, but clusterings$... is of type membership.
+    if (best_algo != "Louvain") {
+      wmean <- append(wmean, step(clusterings$Louvain, best_memb, "LV", best_memb_little_name))
+      names <- append(names, "Louvain")
+    }
+    if (best_algo != "Label Propagation") {
+      wmean <- append(wmean, step(clusterings$LabelPropagation, best_memb, "LP", best_memb_little_name))
+      names <- append(names, "Label Propagation")
+    }
+    if (best_algo != "Walktrap") {
+      wmean <- append(wmean, step(clusterings$Walktrap, best_memb, "W", best_memb_little_name))
+      names <- append(names, "Walktrap")
+      }
+    if (best_algo != "Edge Betweeness") {
+      wmean <- append(wmean, step(clusterings$EdgeBetweenness, best_memb, "EB", best_memb_little_name))
+      names <- append(names, "Edge Betweeness")
+    }
+    if (best_algo != "LeadingEigenvector") {
+      wmean <- append(wmean, step(clusterings$LeadingEigenvector, best_memb, "LE", best_memb_little_name))
+      names <- append(names, "LeadingEigenvector")
+    }
+    df <- data.frame("Algorithm"=names, "Reference"=wmean)
+    colnames(df) <- c("Algorithm", best_memb_little_name)
+  }
+  return(df)
+}
+
+```
+
+#### Evaluate clustering algorithm
+
+```{r}
+evaluate <- function(G, gt = NULL) {
+  row_to_keep <-c("expansion", "conductance", "norm cut", "clustering coef", "modularity")
+  s <- evaluate_significance(G,
+                        alg_list=list(Louvain=cluster_louvain, 
+                                      "Label Propagation"= cluster_label_prop, 
+                                      Walktrap=cluster_walktrap,
+                                      "Edge Betweeness"=cluster_edge_betweenness,
+                                     LeadingEigenvector = cluster_leading_eigen ), 
+                        gt_clustering=gt)
+  s[row_to_keep,]
+}
+```
+
+### Karate
+
+#### Evaluation
+
+```{r warning=FALSE}
+set.seed(seed)
+evaluate_karate <- evaluate(karate, V(karate)$Faction)
+evaluate_karate
+```
+
+#### Jaccard similarity
+
+```{r}
+set.seed(seed)
+js_karate <- significance_evaluation(karate, alg_list, V(karate)$Faction)
+js_karate
+```
+
+### Barabasi albert blocks
+
+```{r}
+set.seed(seed)
+B <- matrix(c(1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1), ncol=4)
+bab <- barabasi_albert_blocks(m=4, p=c(0.25, 0.25, 0.25, 0.25), B=B, t_max=200, type="Hajek", sample_with_replacement = FALSE)
+plot(bab, vertex.color=(V(bab)$label),vertex.label=NA,vertex.size=10)
+```
+
+```{r}
+set.seed(seed)
+clusterings_bab <- compute_clusterings(bab)
+#plot_clusterings(bab, clusterings)
+```
+
+#### Evaluate
+
+```{r}
+set.seed(seed)
+evaluate_bab <- evaluate(bab, V(bab)$label)
+evaluate_bab
+```
+
+#### Jaccard similarity
+
+```{r}
+set.seed(seed)
+js_bab <- significance_evaluation(bab, alg_list, V(bab)$label)
+js_bab
+```
+
+### Enron
+
+#### Transform Enron graph to a undirected weighted graph
+
+```{r}
+set.seed(seed)
+enron_undirected <- as.undirected(enron, mode = "each")
+edges <- as.data.frame(as_edgelist(enron_undirected))
+colnames(edges) <- c("from", "to")
+edges <- edges[order(edges$from, edges$to), ]
+```
+
+```{r warning=FALSE}
+# Count the number of rows with the same values in both columns
+weights_edges <- edges %>%
+  group_by(from, to) %>%
+  summarize(weight = n())
+
+# Display the result
+print(weights_edges)
+
+enron_undir_weighted <- graph_from_data_frame(weights_edges, directed = FALSE)
+```
+
+#### Evaluate
+
+```{r warning=FALSE}
+set.seed(seed)
+evaluate_enron <- evaluate(enron_undir_weighted)
+evaluate_enron
+```
+
+#### Jaccard Similarity
+
+```{r}
+set.seed(seed)
+js_enron <- significance_evaluation(enron_undir_weighted, alg_list)
+js_enron
+```
+
+### NETWORK OF CHOICE: "immuno" (igraphdata)
+
+```{r warning=FALSE}
+set.seed(seed)
+data(immuno,package="igraphdata")
+
+immuno_undirected <- as.undirected(immuno, mode = "each")
+edges <- as.data.frame(as_edgelist(immuno_undirected))
+colnames(edges) <- c("from", "to")
+edges <- edges[order(edges$from, edges$to), ]
+# Count the number of rows with the same values in both columns
+weights_edges <- edges %>%
+  group_by(from, to) %>%
+  summarize(weight = n())
+
+immuno_undir_weighted <- graph_from_data_frame(weights_edges, directed = FALSE)
+```
+
+#### Evaluate
+
+```{r warning=FALSE}
+set.seed(seed)
+evaluate_immuno <- evaluate(immuno_undir_weighted)
+evaluate_immuno
+```
+
+#### Jaccard Similarity
+
+```{r warning=FALSE}
+set.seed(seed)
+js_immuno <- significance_evaluation(immuno_undir_weighted, alg_list)
+js_immuno
+```
+
+### Table into latex
+
+```{r}
+(xtable(evaluate_karate))
+(xtable(js_karate))
+```
+
+```{r}
+(xtable(evaluate_bab))
+(xtable(js_bab))
+```
+
+\
+
+```{r}
+(xtable(evaluate_enron))
+(xtable(js_enron))
+```
+
+```{r}
+(xtable(evaluate_immuno))
+(xtable(js_immuno))
+```
