@@ -21,4 +21,7 @@ You can find the details here :
     - [Guide](./lab4/session3.pdf)
     - [Report](./lab4/report_lab4.pdf)
     - [Code](./lab4/code_lab4.Rmd)
-
+- Finding and assessing community structure
+    - [Guide](./lab5/lab5_communities.pdf)
+    - [Report](./lab5/csn_lab5_report.pdf)
+    - [Code](./lab5/Lab5_5.Rmd)
