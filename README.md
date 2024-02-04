@@ -25,3 +25,8 @@ You can find the details here :
     - [Guide](./lab5/lab5_communities.pdf)
     - [Report](./lab5/csn_lab5_report.pdf)
     - [Code](./lab5/Lab5_5.Rmd)
+ - [Simulation of SIS model over networks](./lab7)
+    - [Guide](./lab7/01intro.pdf)
+    - [Report](./lab75/CSN7.pdf)
+    - [Code](./lab7/CSN_Lab7_code.Rmd)
+
