@@ -1,0 +1,226 @@
+---
+title: "CSN_Lab7"
+author: 
+  "Maria Paraskeva"
+  "Sara Montese"
+date: "2023-12-28"
+output: html_document
+#editor_options: 
+  #chunk_output_type: console
+---
+Load libraries
+```{r}
+library(igraph)
+library(Matrix)
+
+```
+
+
+# Task 1
+Networks generation and disease spread simulation and plots for each network.
+
+```{r}
+set.seed(3103)
+
+# Function to simulate disease spread on a network
+simulateDiseaseSpread <- function(network, n, p0, beta, gamma, it) {
+  adj_matrix <- as_adjacency_matrix(network)
+  eigenvalues <- eigen(adj_matrix)$values
+  lambda_max <- max(eigenvalues)
+  tau <- 1 / lambda_max
+
+  results <- data.frame(
+    TimeStep = 1:it,
+    FractionInfected = numeric(it),
+    Threshold = tau
+  )
+
+  nodeStatus <- sample(0:1, n, replace = TRUE, prob = c(1 - p0, p0))
+
+  for (t in 1:it) {
+    newStatus <- nodeStatus
+
+    for (i in 1:n) {
+      if (nodeStatus[i] == 1) {  # Infected node
+        for (j in 1:n) {
+          if (adj_matrix[i, j] == 1 && runif(1) < beta) {  # Attempt to infect neighbors
+            newStatus[j] <- 1
+          }
+        }
+
+        if (runif(1) < gamma) {  # Recover with probability gamma
+          newStatus[i] <- 0
+        }
+      }
+    }
+
+    nodeStatus <- newStatus
+
+    # Record the fraction of infected nodes at each time step
+    results$FractionInfected[t] <- sum(nodeStatus) / n
+    
+    # Print or store the results as needed
+    cat("Time Step:", t, "Fraction Infected:",  results$FractionInfected[t], "\n")
+  
+  }
+
+  return(results)
+}
+
+# Function to create and plot a network
+createAndPlotNetwork <- function(networkType, n, p, m, k, circular) {
+  set.seed(3103)
+
+  if (networkType == "Erdős-Rényi") {
+    network <- erdos.renyi.game(n, p, directed = FALSE)
+  } else if (networkType == "Barabási-Albert") {
+    network <- barabasi.game(n, m, directed = FALSE)
+  } else if (networkType == "Watts-Strogatz") {
+    network <- watts.strogatz.game(1, n, k, p)
+  } else if (networkType == "Complete") {
+    network <- make_full_graph(n)
+  } else if (networkType == "Star") {
+    network <- make_star(n, mode = "out")
+  } else if (networkType == "Regular Lattice") {
+    network <- make_lattice(length = n, dim = 1, circular = circular, nei = m)
+  }
+
+  adjMatrix <- as_adjacency_matrix(network)
+
+  plot(network, main = paste("Network: ", networkType))
+
+  return(network)  # Return the network object
+}
+```
+
+
+```{r}
+networkTypes <- c("Erdős-Rényi", "Barabási-Albert", "Watts-Strogatz", "Complete", "Star", "Regular Lattice")
+n <- 500   # Number of nodes
+p <- 0.2      # Probability of edge creation
+p0 <- 0.1     # Initial fraction of infected nodes
+beta <- 0.2   # Infection probability
+gamma <- 0.1  # Recovery probability
+it <- 100     # Iterations
+
+
+m <- 2  # Number of edges to attach for each new node (BA)
+k <- 10  # Each node is connected to k nearest neighbors (WS)
+
+
+# Empty dataframe for result matrix
+results <- data.frame(
+  Network = character(0),
+  LeadingEigenvalue = numeric(0),
+  InverseLambda = numeric(0)
+)
+```
+
+
+```{r}
+
+# Loop through network types
+for (networkType in networkTypes) {
+  if (networkType %in% c("Erdős-Rényi", "Barabási-Albert", "Watts-Strogatz", "Complete", "Star")) {
+    network <- createAndPlotNetwork(networkType, n, p, m, k, circular = FALSE)
+  } else if (networkType == "Regular Lattice") {
+    network <- createAndPlotNetwork(networkType, n, p, m = 10, k = NULL, circular = TRUE)
+  }
+
+  results1 <- simulateDiseaseSpread(network, n, p0, beta, gamma, it)
+
+  # Display the result matrix
+  cat("\nResult Matrix for Network Type:", networkType, "\n")
+  print(results1)
+
+  # Store the leading eigenvalue and inverse of lambda in the main result matrix
+  eigenvalues <- eigen(as_adjacency_matrix(network))$values
+  lambda <- max(eigenvalues)
+  tau <- 1 / lambda
+
+  results <- rbind(results, c(networkType, lambda, tau))
+  
+  #pdf("output_plot.pdf", height = 8, width = 6)
+
+  # Plot epidemic spread
+  plot(1:it, results1$FractionInfected, type = "l", 
+       xlab = "Time Step", ylab = "Fraction Infected", 
+       main = paste("Proportion of Infected Nodes Over Time -", networkType), 
+       ylim = c(0, 1))
+  abline(h = 1/lambda, col = "red", lty = 2)  # Add the epidemic threshold line
+  legend("bottomright", legend = paste("1/λ1 with λ1 =", round(lambda, 2)), col = "red", lty = 2)
+
+  dev.off()
+  
+}
+
+# Display the final result matrix
+colnames(results) <- c("Network", "LeadingEigenvalue", "InverseLambda")
+print(results)
+```
+
+
+# Task 2
+Threshold and parameter tweaking for each network
+```{r}
+set.seed(3103)
+
+# Empty dataframe for result matrix
+results <- data.frame(
+  Network = character(0),
+  LeadingEigenvalue = numeric(0),
+  InverseLambda = numeric(0),
+  Beta = numeric(0),
+  Gamma = numeric(0),
+  Spread = character(0) #"Spread" column in the result matrix indicates whether the disease spread or no
+)
+
+# Loop through network types
+for (networkType in networkTypes) {
+  if (networkType %in% c("Erdős-Rényi", "Barabási-Albert", "Watts-Strogatz", "Complete", "Star")) {
+    network <- createAndPlotNetwork(networkType, n, p, m, k, circular = FALSE)
+  } else if (networkType == "Regular Lattice") {
+    network <- createAndPlotNetwork(networkType, n, p, m = 10, k = NULL, circular = TRUE)
+  }
+
+  # Store the leading eigenvalue and inverse of lambda in the main result matrix
+  eigenvalues <- eigen(as_adjacency_matrix(network))$values
+  lambda <- max(eigenvalues)
+  tau <- 1 / lambda
+  # Define two sets of parameter values for beta and gamma
+  beta_values <-  c(0.008, 0.007, 1.1, 0.9)
+  gamma_values <- c(0.9, 1.2, 0.8)
+
+  
+  for (beta_value in beta_values) {
+    for (gamma_value in gamma_values) {
+      results1 <- simulateDiseaseSpread(network, n, p0, beta_value, gamma_value, it)
+
+      # Check if the disease spread or not
+      spread_status <- ifelse(beta_value/gamma_value > results1$Threshold, "Spread", "Not Spread")
+
+      # Display the result matrix
+      cat("\nResult Matrix for Network Type:", networkType, ", Beta:", beta_value, ", Gamma:", gamma_value, "\n")
+      print(results1)
+
+      # Store the results in the main result matrix
+      results <- rbind(results, c(networkType, lambda, tau, beta_value, gamma_value, spread_status))
+      
+       # Plot epidemic spread
+      plot(1:it, results1$FractionInfected, type = "l", 
+         xlab = "Time Step", ylab = "Fraction Infected", 
+         main = paste("Proportion of Infected Nodes Over Time\n", networkType, " - β/γ = ", beta_value/gamma_value, "\n"), 
+         ylim = c(0, 1))
+      abline(h = 1/lambda, col = "red", lty = 2)  # Add the epidemic threshold line
+      legend("bottomright", legend = paste("1/λ1 =", round(1/lambda, 2)), col = "red", lty = 2)
+      
+     }
+  }
+}
+
+# Display the final result matrix
+colnames(results) <- c("Network", "LeadingEigenvalue", "InverseLambda", "Beta", "Gamma", "Spread")
+print(results)
+
+```
+
